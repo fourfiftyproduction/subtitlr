@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Animated captions for short videos. Transcribed, styled and exported to MP4 entirely in your browser. No upload, no server, no subscription." />
+    <meta name="color-scheme" content="dark" />
+    <title>Subtitlr — captions for shorts, 100% in your browser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800;900&family=Montserrat:wght@800;900&family=Bebas+Neue&family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ffe600'/%3E%3Cpath d='M7 21h18M7 15h12' stroke='%23111' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="./"><span class="brand-mark">S</span> Subtitlr</a>
+      <nav class="top-links">
+        <span class="pill" title="Your video never leaves this tab">🔒 runs on your device</span>
+        <a href="https://github.com/fourfiftyproduction/subtitlr" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="app">
+      <!-- Stage 1: drop zone -->
+      <section id="intro" class="intro">
+        <h1>Animated captions for your shorts.<br /><span class="accent">No upload. No subscription.</span></h1>
+        <p class="lede">Drop a vertical video. Whisper transcribes it on your GPU, you pick a style, and the MP4 is rendered right here in the browser. The file never leaves your device.</p>
+        <label id="drop" class="drop" for="file">
+          <input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" hidden />
+          <div class="drop-inner">
+            <div class="drop-icon">⬇</div>
+            <div class="drop-title">Drop a video or click to choose</div>
+            <div class="drop-sub">MP4 · MOV · WebM · up to ~3 min · best at 9:16</div>
+          </div>
+        </label>
+        <p class="or">or <button id="demo" class="link">try the demo clip</button> (11 s, public-domain speech)</p>
+        <p id="support-warning" class="warn" hidden></p>
+        <ul class="facts">
+          <li><b>0 €</b> — replaces a $16–39/mo caption subscription</li>
+          <li><b>Private</b> — transcription and rendering happen locally</li>
+          <li><b>Real MP4</b> — H.264 + AAC, ready for TikTok, Reels, Shorts</li>
+        </ul>
+      </section>
+
+      <!-- Stage 2: editor -->
+      <section id="editor" class="editor" hidden>
+        <div class="preview-col">
+          <div class="phone">
+            <video id="video" playsinline></video>
+            <canvas id="overlay"></canvas>
+            <button id="playpause" class="play" aria-label="Play or pause">▶</button>
+          </div>
+          <div class="scrub-row">
+            <span id="time" class="mono">0:00</span>
+            <input id="scrub" type="range" min="0" max="1000" value="0" />
+            <span id="duration" class="mono">0:00</span>
+          </div>
+          <div id="status" class="status">
+            <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+            <div id="status-text">Loading…</div>
+          </div>
+        </div>
+
+        <div class="controls-col">
+          <div class="group">
+            <div class="group-title">Style</div>
+            <div id="styles" class="styles"></div>
+          </div>
+
+          <div class="group grid2">
+            <label>Font
+              <select id="font">
+                <option value="Inter">Inter</option>
+                <option value="Montserrat">Montserrat</option>
+                <option value="Bebas Neue">Bebas Neue</option>
+                <option value="Poppins">Poppins</option>
+              </select>
+            </label>
+            <label>Words per line
+              <input id="wpl" type="range" min="1" max="7" value="4" />
+            </label>
+            <label>Size
+              <input id="size" type="range" min="0.03" max="0.09" step="0.002" value="0.055" />
+            </label>
+            <label>Position
+              <input id="pos" type="range" min="0.1" max="0.92" step="0.01" value="0.72" />
+            </label>
+            <label>Text <input id="c-text" type="color" value="#ffffff" /></label>
+            <label>Highlight <input id="c-hi" type="color" value="#ffe600" /></label>
+            <label class="check"><input id="upper" type="checkbox" checked /> UPPERCASE</label>
+          </div>
+
+          <div class="group">
+            <div class="group-title row">
+              <span>Transcript <small id="lang" class="muted"></small></span>
+              <small class="muted">click a word to jump · edit text inline</small>
+            </div>
+            <div id="words" class="words"></div>
+          </div>
+
+          <div class="group actions">
+            <button id="export" class="primary" disabled>Export MP4</button>
+            <a id="download" class="ghost" hidden download="subtitlr.mp4">Download again</a>
+            <button id="reset" class="ghost">Start over</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Built for <a href="https://canivibecodeit.com/thebuildgames" target="_blank" rel="noopener">The Build Games</a> · open source · works best in Chrome or Edge on a laptop or desktop</span>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
