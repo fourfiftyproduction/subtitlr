@@ -34,6 +34,9 @@ function loadVideo(file: Blob): Promise<HTMLVideoElement> {
     video.playsInline = true;
     video.preload = 'auto';
     video.src = URL.createObjectURL(file);
+    // requestVideoFrameCallback only fires for videos the compositor presents, so keep it in the DOM (invisible).
+    video.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none';
+    document.body.append(video);
     video.addEventListener('loadedmetadata', () => resolve(video), { once: true });
     video.addEventListener('error', () => reject(new Error('Could not load video')), { once: true });
   });
@@ -146,29 +149,67 @@ export async function exportMp4(opts: ExportOptions): Promise<Blob> {
     }
   }
 
-  // --- video: seek frame by frame, composite, encode ---
+  // --- video: composite each decoded frame, encode ---
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d', { alpha: false })!;
-  const totalFrames = Math.max(1, Math.round(duration * fps));
   const frameUs = Math.round(1_000_000 / fps);
+  const KEYFRAME_US = 2_000_000;
+  let lastKeyUs = -Infinity;
 
-  for (let i = 0; i < totalFrames; i++) {
-    if (encodeError) throw encodeError;
-    const t = i / fps;
-    await seekTo(video, Math.min(t, Math.max(0, duration - 1e-3)));
+  const encodeFrame = (t: number, tsUs: number) => {
     ctx.drawImage(video, 0, 0, width, height);
     drawOverlay(ctx, t, width, height);
-
-    const frame = new VideoFrame(canvas, { timestamp: i * frameUs, duration: frameUs });
-    videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+    const frame = new VideoFrame(canvas, { timestamp: tsUs, duration: frameUs });
+    const keyFrame = tsUs - lastKeyUs >= KEYFRAME_US;
+    if (keyFrame) lastKeyUs = tsUs;
+    videoEncoder.encode(frame, { keyFrame });
     frame.close();
+  };
+  const drained = async () => { while (videoEncoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 4)); };
 
-    while (videoEncoder.encodeQueueSize > 8) {
-      await new Promise((r) => setTimeout(r, 4));
+  if ('requestVideoFrameCallback' in video) {
+    // Fast path (~1× real time): play the video and grab every presented frame. Seeking costs ~300 ms/frame,
+    // playback decodes at native speed. Encoder backpressure pauses playback so no frame is dropped.
+    await new Promise<void>((resolve, reject) => {
+      let lastT = -1;
+      let pausedForDrain = false;
+      let done = false;
+      const onFrame: VideoFrameRequestCallback = (_now, meta) => {
+        if (done) return;
+        if (encodeError) return reject(encodeError);
+        const t = meta.mediaTime;
+        if (t > lastT) {
+          lastT = t;
+          encodeFrame(t, Math.round(t * 1_000_000));
+          report(0.05 + 0.9 * (t / duration), `Rendering ${t.toFixed(1)} s / ${duration.toFixed(1)} s`);
+          if (videoEncoder.encodeQueueSize > 8 && !pausedForDrain) {
+            pausedForDrain = true;
+            video.pause();
+            drained().then(() => { pausedForDrain = false; return video.play(); }).catch(reject);
+          }
+        }
+        if (!video.ended) video.requestVideoFrameCallback(onFrame);
+      };
+      // Let a callback for the final frame land before we stop accepting frames.
+      video.addEventListener('ended', () => requestAnimationFrame(() => { done = true; resolve(); }), { once: true });
+      video.addEventListener('error', () => reject(new Error('Playback failed during export')), { once: true });
+      video.requestVideoFrameCallback(onFrame);
+      video.currentTime = 0;
+      video.play().catch(reject);
+    });
+  } else {
+    // Fallback: seek frame by frame at a fixed rate.
+    const totalFrames = Math.max(1, Math.round(duration * fps));
+    for (let i = 0; i < totalFrames; i++) {
+      if (encodeError) throw encodeError;
+      const t = i / fps;
+      await seekTo(video, Math.min(t, Math.max(0, duration - 1e-3)));
+      encodeFrame(t, i * frameUs);
+      await drained();
+      if (i % 5 === 0) report(0.05 + 0.9 * (i / totalFrames), `Rendering frame ${i + 1}/${totalFrames}`);
     }
-    if (i % 5 === 0) report(0.05 + 0.9 * (i / totalFrames), `Rendering frame ${i + 1}/${totalFrames}`);
   }
 
   report(0.96, 'Finalizing');
@@ -181,6 +222,7 @@ export async function exportMp4(opts: ExportOptions): Promise<Blob> {
   if (encodeError) throw encodeError;
   muxer.finalize();
   URL.revokeObjectURL(video.src);
+  video.remove();
 
   report(1, 'Done');
   return new Blob([target.buffer], { type: 'video/mp4' });

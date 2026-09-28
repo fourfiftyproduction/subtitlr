@@ -41,7 +41,7 @@ Requires a browser with WebCodecs (Chrome or Edge on desktop). WebGPU makes tran
 
 - Desktop Chrome/Edge only for export (Safari and Firefox lack the needed WebCodecs pieces).
 - First run downloads the Whisper model (~100 MB), cached by the browser afterwards.
-- Export renders frame by frame through the browser's decoder: a few times real time on a laptop, slower without hardware video decoding.
+- Export plays the video once and encodes every frame as it is presented, so it takes about as long as the clip itself. Keep the tab in the foreground while it runs.
 - Whisper `base` is small on purpose (fast on a laptop GPU). Fix the occasional misheard word inline before exporting.
 
 ## Testing

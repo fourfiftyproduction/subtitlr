@@ -57,7 +57,7 @@ await page.click('#export');
 last = '';
 while (true) {
   const s = await status();
-  if (s !== last && !/Rendering frame/.test(s)) { console.log(stamp(), s); last = s; }
+  if (s !== last && !/^Rendering/.test(s)) { console.log(stamp(), s); last = s; }
   if (/^(Done|Export failed)/.test(s)) break;
   if (Date.now() - t0 > 900_000) throw new Error('export timeout');
   await new Promise((r) => setTimeout(r, 2000));
