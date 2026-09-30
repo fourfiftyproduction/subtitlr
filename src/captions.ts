@@ -2,7 +2,7 @@
 import type { CaptionLine, CaptionRenderer, CaptionSettings, StyleId, Word } from './types';
 
 const PAUSE_BREAK = 0.6;   // s of silence that starts a new line
-const GAP_BRIDGE = 0.25;   // s; shorter gaps between lines are bridged so captions don't flicker
+const HOLD = 0.8;          // s a line stays up into a pause (or until the next line starts) so it never just flashes
 const MAX_WIDTH = 0.9;     // fraction of w a row may use
 const POP_MS = 120;        // active-word ease duration
 
@@ -23,9 +23,9 @@ export function groupWords(words: Word[], settings: CaptionSettings): CaptionLin
     cur.push(w);
   }
   flush();
-  for (let i = 0; i < lines.length - 1; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const next = lines[i + 1];
-    if (next.start - lines[i].end < GAP_BRIDGE) lines[i].end = next.start; // bridge short gaps, clamp overlaps
+    lines[i].end = next ? Math.min(next.start, lines[i].end + HOLD) : lines[i].end + HOLD; // hold, never overlap
   }
   return lines;
 }

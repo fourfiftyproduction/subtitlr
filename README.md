@@ -23,6 +23,7 @@ Your settings are remembered in the browser between sessions.
 | Step | Tech | Where it runs |
 |---|---|---|
 | Transcription | [transformers.js](https://github.com/huggingface/transformers.js) + Whisper (`onnx-community/whisper-base_timestamped`, word-level timestamps via cross-attention) | your browser, WebGPU or WASM |
+| Timing | Whisper's word timestamps run 0.1–0.5 s late; `src/align.ts` snaps words after pauses to the speech onsets in the audio envelope and shifts the rest by the measured lag | your browser |
 | Rendering | Canvas 2D, pure functions per frame | your browser |
 | Encoding | WebCodecs `VideoEncoder`/`AudioEncoder` + [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) | your browser |
 | Hosting | static files on GitHub Pages | nothing runs server-side |
@@ -55,6 +56,8 @@ node scripts/captions-test.mjs     # renders every style to tmp/*.png
 node scripts/transcribe-test.mjs   # Whisper on a public-domain clip, asserts words + timings
 node scripts/e2e-test.mjs          # full flow: demo clip → transcript → MP4 export
 node scripts/edge-test.mjs         # unplayable file message, Opus fallback when AAC is unavailable
+node scripts/align-test.mjs        # offline: onset alignment of raw Whisper timings against tmp/demo-audio.wav
+node scripts/timing-probe.mjs      # prints the word timings the app produces for the demo clip
 node scripts/mobile-test.mjs       # phone emulation (no GPU) against the live site
 ```
 

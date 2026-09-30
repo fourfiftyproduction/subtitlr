@@ -2,6 +2,7 @@
 // Nothing is uploaded; the model (~100–200 MB) is fetched once and cached by the browser.
 import { pipeline, Tensor, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 import type { Transcript, TranscribeOptions, Word } from './types';
+import { alignToOnsets } from './align';
 
 // Word timestamps need an export with cross-attention outputs; plain whisper-base lacks them.
 export const DEFAULT_MODEL = 'onnx-community/whisper-base_timestamped';
@@ -170,7 +171,8 @@ export async function transcribe(file: Blob, opts: TranscribeOptions = {}): Prom
     } as any);
 
     report(1, 'Done');
-    return { words: cleanWords((out.chunks ?? []) as any, duration), language };
+    const words = cleanWords((out.chunks ?? []) as any, duration);
+    return { words: alignToOnsets(words, audio, SAMPLE_RATE), language };
   } catch (e) {
     if (backend !== 'webgpu') throw e;
     console.warn('[transcribe] WebGPU inference failed, retrying on wasm', e);
