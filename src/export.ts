@@ -13,14 +13,38 @@ export interface ExportOptions {
   maxHeight?: number;
 }
 
-const VIDEO_CODECS = ['avc1.64002A', 'avc1.4D402A', 'avc1.42E02A', 'avc1.42001F'];
+const VIDEO_CODECS = ['avc1.64002A', 'avc1.4D402A', 'avc1.42E02A', 'avc1.42001F', 'avc1.640033', 'avc1.4D4033'];
 
 async function pickVideoCodec(width: number, height: number, fps: number): Promise<string> {
   for (const codec of VIDEO_CODECS) {
-    const { supported } = await VideoEncoder.isConfigSupported({ codec, width, height, framerate: fps, bitrate: 8_000_000 });
-    if (supported) return codec;
+    try {
+      const { supported } = await VideoEncoder.isConfigSupported({ codec, width, height, framerate: fps, bitrate: 8_000_000 });
+      if (supported) return codec;
+    } catch { /* invalid config for this browser, try the next */ }
   }
   throw new Error('No supported H.264 encoder configuration found');
+}
+
+export type AudioCodecId = 'aac' | 'opus';
+const AUDIO_CODECS: { codec: string; id: AudioCodecId }[] = [
+  { codec: 'mp4a.40.2', id: 'aac' },
+  { codec: 'opus', id: 'opus' }, // Chrome on Linux has no AAC encoder; Opus-in-MP4 plays in Chrome, VLC, ffmpeg
+];
+
+async function pickAudioCodec(sampleRate: number, channels: number): Promise<{ codec: string; id: AudioCodecId } | null> {
+  for (const c of AUDIO_CODECS) {
+    try {
+      const { supported } = await AudioEncoder.isConfigSupported({ codec: c.codec, sampleRate, numberOfChannels: channels, bitrate: 128_000 });
+      if (supported) return c;
+    } catch { /* try the next */ }
+  }
+  return null;
+}
+
+export interface ExportResult {
+  blob: Blob;
+  /** Which audio codec ended up in the file; 'none' when the source is silent or no encoder was available. */
+  audio: AudioCodecId | 'none';
 }
 
 export function webCodecsAvailable(): boolean {
@@ -65,7 +89,9 @@ function evenDim(n: number): number {
   return Math.max(2, Math.round(n / 2) * 2);
 }
 
-export async function exportMp4(opts: ExportOptions): Promise<Blob> {
+const AUDIO_RATE = 48000; // AAC and Opus encoders both accept 48 kHz; decodeAudioData resamples to it
+
+export async function exportMp4(opts: ExportOptions): Promise<ExportResult> {
   const { file, drawOverlay, onProgress } = opts;
   const fps = opts.fps ?? 30;
   const maxHeight = opts.maxHeight ?? 1920;
@@ -74,30 +100,32 @@ export async function exportMp4(opts: ExportOptions): Promise<Blob> {
   report(0, 'Loading video');
   const video = await loadVideo(file);
   const duration = await resolveDuration(video);
+  if (!video.videoWidth || !video.videoHeight) throw new Error('The file has no video track');
   const scale = Math.min(1, maxHeight / video.videoHeight);
   const width = evenDim(video.videoWidth * scale);
   const height = evenDim(video.videoHeight * scale);
 
-  // --- audio: decode with WebAudio, re-encode as AAC ---
+  // --- audio: decode with WebAudio, re-encode as AAC (or Opus where the browser has no AAC encoder) ---
   report(0.02, 'Decoding audio');
-  const audioCtx = new AudioContext();
   let audioBuffer: AudioBuffer | null = null;
   try {
+    const audioCtx = new OfflineAudioContext(2, 1, AUDIO_RATE);
     audioBuffer = await audioCtx.decodeAudioData(await file.arrayBuffer());
   } catch {
     audioBuffer = null; // silent video
   }
-  await audioCtx.close();
 
-  const hasAudio = !!audioBuffer && audioBuffer.length > 0;
-  const sampleRate = hasAudio ? audioBuffer!.sampleRate : 48000;
-  const channels = hasAudio ? Math.min(2, audioBuffer!.numberOfChannels) : 1;
+  const sampleRate = AUDIO_RATE;
+  const channels = audioBuffer ? Math.min(2, audioBuffer.numberOfChannels) : 1;
+  const audioCodec = audioBuffer && audioBuffer.length > 0 ? await pickAudioCodec(sampleRate, channels) : null;
+  if (audioBuffer && !audioCodec) console.warn('[export] no AAC/Opus encoder in this browser, exporting without audio');
+  const hasAudio = !!audioCodec;
 
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
     video: { codec: 'avc', width, height, frameRate: fps },
-    audio: hasAudio ? { codec: 'aac', sampleRate, numberOfChannels: channels } : undefined,
+    audio: hasAudio ? { codec: audioCodec!.id, sampleRate, numberOfChannels: channels } : undefined,
     fastStart: 'in-memory',
     firstTimestampBehavior: 'offset',
   });
@@ -125,7 +153,7 @@ export async function exportMp4(opts: ExportOptions): Promise<Blob> {
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => { encodeError = e; },
     });
-    audioEncoder.configure({ codec: 'mp4a.40.2', sampleRate, numberOfChannels: channels, bitrate: 128_000 });
+    audioEncoder.configure({ codec: audioCodec!.codec, sampleRate, numberOfChannels: channels, bitrate: 128_000 });
 
     // Feed audio in ~1s planar chunks.
     const buf = audioBuffer!;
@@ -225,5 +253,5 @@ export async function exportMp4(opts: ExportOptions): Promise<Blob> {
   video.remove();
 
   report(1, 'Done');
-  return new Blob([target.buffer], { type: 'video/mp4' });
+  return { blob: new Blob([target.buffer], { type: 'video/mp4' }), audio: audioCodec?.id ?? 'none' };
 }

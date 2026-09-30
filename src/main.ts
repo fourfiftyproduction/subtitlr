@@ -120,6 +120,7 @@ function syncControls() {
   ui.cStroke.value = s.strokeColor;
   ui.upper.checked = s.uppercase;
   ui.autoColor.checked = s.autoColor;
+  ui.cText.disabled = s.autoColor;
   ui.offset.value = String(state.offset);
   ui.offsetVal.textContent = `${state.offset >= 0 ? '+' : ''}${state.offset.toFixed(2)} s`;
   ui.resolution.value = String(state.maxHeight);
@@ -144,6 +145,7 @@ function drawPreview() {
 }
 
 let lastPreviewTime = -1;
+let previewRunning = false;
 function previewLoop() {
   drawPreview();
   const t = ui.video.currentTime;
@@ -242,7 +244,8 @@ async function runTranscription() {
     if (transcriptionBackend() === 'wasm') showMessage('Transcribed on CPU (no WebGPU in this browser).');
   } catch (err) {
     console.error(err);
-    showMessage('Transcription failed: ' + (err as Error).message);
+    const msg = (err as Error).message ?? String(err);
+    showMessage(/decode ?audio/i.test(msg) ? 'No audio could be read from this file (silent video or unsupported audio codec).' : 'Transcription failed: ' + msg);
   } finally {
     setBusy(false);
   }
@@ -257,13 +260,31 @@ async function loadFile(file: File) {
   ui.editor.hidden = false;
   ui.download.hidden = true;
   ui.video.src = URL.createObjectURL(file);
-  await new Promise<void>((res) => ui.video.addEventListener('loadedmetadata', () => res(), { once: true }));
+  const playable = await new Promise<boolean>((res) => {
+    ui.video.addEventListener('loadedmetadata', () => res(true), { once: true });
+    ui.video.addEventListener('error', () => res(false), { once: true });
+  });
+  if (!playable || !ui.video.videoWidth) {
+    showMessage(playable
+      ? 'This file has no video track.'
+      : 'This browser cannot play this video (unsupported codec, e.g. HEVC/H.265 from an iPhone). Please convert it to H.264 MP4 first.');
+    return;
+  }
+  // Recordings (MediaRecorder WebM) report Infinity until seeked to the end.
+  if (!Number.isFinite(ui.video.duration)) {
+    await new Promise<void>((res) => {
+      ui.video.addEventListener('durationchange', () => { if (Number.isFinite(ui.video.duration)) res(); });
+      ui.video.currentTime = 1e9;
+      setTimeout(res, 3000);
+    });
+    ui.video.currentTime = 0;
+  }
   const scale = Math.min(1, 720 / ui.video.videoWidth);
   ui.overlay.width = Math.round(ui.video.videoWidth * scale);
   ui.overlay.height = Math.round(ui.video.videoHeight * scale);
   ui.duration.textContent = fmt(ui.video.duration);
   renderStyleCards();
-  requestAnimationFrame(previewLoop);
+  if (!previewRunning) { previewRunning = true; requestAnimationFrame(previewLoop); }
   await runTranscription();
 }
 
@@ -275,7 +296,7 @@ async function doExport() {
   try {
     await ensureFontsLoaded([state.settings.fontFamily]);
     const t0 = performance.now();
-    const blob = await exportMp4({
+    const { blob, audio } = await exportMp4({
       file: state.file,
       fps: 30,
       maxHeight: state.maxHeight,
@@ -292,7 +313,8 @@ async function doExport() {
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     ui.download.href = url; ui.download.download = name; ui.download.hidden = false;
-    showMessage(`Done in ${((performance.now() - t0) / 1000).toFixed(0)} s · ${(blob.size / 1e6).toFixed(1)} MB`);
+    const audioNote = audio === 'opus' ? ' · audio as Opus (this browser has no AAC encoder)' : audio === 'none' ? ' · no audio track' : '';
+    showMessage(`Done in ${((performance.now() - t0) / 1000).toFixed(0)} s · ${(blob.size / 1e6).toFixed(1)} MB${audioNote}`);
   } catch (err) {
     console.error(err);
     showMessage('Export failed: ' + (err as Error).message);
@@ -352,7 +374,8 @@ ui.scrub.oninput = () => seekTo((Number(ui.scrub.value) / 1000) * ui.video.durat
     if (e.pointerId !== pointerId) return;
     pointerId = -1;
     ui.phone.classList.remove('dragging');
-    if (dragging) savePrefs(); else togglePlay();
+    if (dragging) savePrefs();
+    else if (e.type === 'pointerup') togglePlay(); // a cancelled gesture (scroll, second finger) is not a tap
   };
   ui.phone.addEventListener('pointerup', end);
   ui.phone.addEventListener('pointercancel', end);

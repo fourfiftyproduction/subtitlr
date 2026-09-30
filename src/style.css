@@ -87,7 +87,7 @@ button, select, input { font: inherit; color: inherit; }
 .ghost:disabled { opacity: .45; cursor: not-allowed; }
 .actions label.inline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .phone.dragging { cursor: ns-resize; }
-.phone { cursor: pointer; }
+.phone { cursor: pointer; touch-action: none; /* vertical drag moves the captions, so no page scroll from here */ }
 
 /* style cards */
 .styles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }

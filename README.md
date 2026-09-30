@@ -54,6 +54,8 @@ Headless checks run against the dev server (`npm run dev` first), driving a real
 node scripts/captions-test.mjs     # renders every style to tmp/*.png
 node scripts/transcribe-test.mjs   # Whisper on a public-domain clip, asserts words + timings
 node scripts/e2e-test.mjs          # full flow: demo clip → transcript → MP4 export
+node scripts/edge-test.mjs         # unplayable file message, Opus fallback when AAC is unavailable
+node scripts/mobile-test.mjs       # phone emulation (no GPU) against the live site
 ```
 
 ## License
