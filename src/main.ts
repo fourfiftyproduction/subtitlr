@@ -1,7 +1,8 @@
 import './style.css';
 import { exportMp4, webCodecsAvailable } from './export';
 import { isMobileDevice, transcribe, transcriptionBackend } from './transcribe';
-import { drawCaptions, ensureFontsLoaded, groupWords, renderers } from './captions';
+import { drawCaptions, ensureFontsLoaded, frameSettings, groupWords, renderers } from './captions';
+import { downloadText, toSrt, toText, toVtt } from './subtitles';
 import { DEFAULT_SETTINGS, type CaptionLine, type CaptionSettings, type StyleId, type Word } from './types';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -9,22 +10,44 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 const ui = {
   intro: $('#intro'), editor: $('#editor'), drop: $('#drop'), file: $<HTMLInputElement>('#file'),
   supportWarning: $('#support-warning'),
-  video: $<HTMLVideoElement>('#video'), overlay: $<HTMLCanvasElement>('#overlay'), playpause: $('#playpause'),
+  phone: $('.phone'), video: $<HTMLVideoElement>('#video'), overlay: $<HTMLCanvasElement>('#overlay'), playpause: $('#playpause'),
   scrub: $<HTMLInputElement>('#scrub'), time: $('#time'), duration: $('#duration'),
   status: $('#status'), statusText: $('#status-text'), barFill: $('#bar-fill'),
   styles: $('#styles'), font: $<HTMLSelectElement>('#font'), wpl: $<HTMLInputElement>('#wpl'),
   size: $<HTMLInputElement>('#size'), pos: $<HTMLInputElement>('#pos'), cText: $<HTMLInputElement>('#c-text'),
-  cHi: $<HTMLInputElement>('#c-hi'), upper: $<HTMLInputElement>('#upper'),
+  cHi: $<HTMLInputElement>('#c-hi'), cStroke: $<HTMLInputElement>('#c-stroke'), upper: $<HTMLInputElement>('#upper'),
+  autoColor: $<HTMLInputElement>('#auto-color'),
+  offset: $<HTMLInputElement>('#offset'), offsetVal: $('#offset-val'),
   lang: $('#lang'), words: $('#words'),
-  export: $<HTMLButtonElement>('#export'), download: $<HTMLAnchorElement>('#download'), reset: $('#reset'),
+  language: $<HTMLSelectElement>('#language'), quality: $<HTMLSelectElement>('#quality'), qualityLabel: $('#quality-label'),
+  retranscribe: $<HTMLButtonElement>('#retranscribe'), copy: $<HTMLButtonElement>('#copy'),
+  export: $<HTMLButtonElement>('#export'), resolution: $<HTMLSelectElement>('#resolution'),
+  srt: $<HTMLButtonElement>('#srt'), vtt: $<HTMLButtonElement>('#vtt'),
+  download: $<HTMLAnchorElement>('#download'), reset: $('#reset'),
 };
+
+const ACCURATE_MODEL = 'onnx-community/whisper-small_timestamped';
+const PREFS_KEY = 'subtitlr.prefs.v1';
+
+interface Prefs {
+  settings: CaptionSettings;
+  offset: number;      // seconds added to caption timing (positive = captions later)
+  maxHeight: number;   // export cap
+  language: string;    // '' = auto
+  quality: 'fast' | 'accurate';
+}
 
 const state = {
   file: null as File | null,
   words: [] as Word[],
   lines: [] as CaptionLine[],
   settings: { ...DEFAULT_SETTINGS } as CaptionSettings,
+  offset: 0,
+  maxHeight: 1920,
+  language: '',
+  quality: 'fast' as Prefs['quality'],
   busy: false,
+  transcribed: false,
 };
 
 const STYLE_IDS = Object.keys(renderers) as StyleId[];
@@ -35,6 +58,8 @@ const SAMPLE: Word[] = [
 
 // ---------- helpers ----------
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
+const baseName = () => (state.file?.name.replace(/\.[^.]+$/, '') || 'video');
 
 function setStatus(fraction: number | null, text: string) {
   ui.status.classList.toggle('active', fraction !== null);
@@ -42,8 +67,69 @@ function setStatus(fraction: number | null, text: string) {
   ui.statusText.textContent = text;
 }
 
+function showMessage(text: string) {
+  setStatus(null, text);
+  ui.status.classList.add('active');
+}
+
+function setBusy(busy: boolean) {
+  state.busy = busy;
+  const ready = !busy && state.transcribed;
+  ui.export.disabled = busy;
+  for (const b of [ui.srt, ui.vtt, ui.copy, ui.retranscribe]) b.disabled = !ready;
+}
+
 function regroup() {
   state.lines = groupWords(state.words, state.settings);
+  drawPreview();
+}
+
+// ---------- prefs ----------
+function savePrefs() {
+  try {
+    const p: Prefs = { settings: state.settings, offset: state.offset, maxHeight: state.maxHeight, language: state.language, quality: state.quality };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch { /* private mode etc. */ }
+}
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw) as Partial<Prefs>;
+    if (p.settings) {
+      const s = { ...DEFAULT_SETTINGS, ...p.settings };
+      if (!(s.style in renderers)) s.style = DEFAULT_SETTINGS.style;
+      state.settings = s;
+    }
+    if (typeof p.offset === 'number') state.offset = clamp(p.offset, -0.5, 0.5);
+    if (typeof p.maxHeight === 'number') state.maxHeight = p.maxHeight;
+    if (typeof p.language === 'string') state.language = p.language;
+    if (p.quality === 'fast' || p.quality === 'accurate') state.quality = p.quality;
+  } catch { /* ignore corrupt prefs */ }
+}
+
+function syncControls() {
+  const s = state.settings;
+  ui.font.value = s.fontFamily;
+  ui.wpl.value = String(s.maxWordsPerLine);
+  ui.size.value = String(s.fontSize);
+  ui.pos.value = String(s.position);
+  ui.cText.value = s.textColor;
+  ui.cHi.value = s.highlightColor;
+  ui.cStroke.value = s.strokeColor;
+  ui.upper.checked = s.uppercase;
+  ui.autoColor.checked = s.autoColor;
+  ui.offset.value = String(state.offset);
+  ui.offsetVal.textContent = `${state.offset >= 0 ? '+' : ''}${state.offset.toFixed(2)} s`;
+  ui.resolution.value = String(state.maxHeight);
+  ui.language.value = state.language;
+  ui.quality.value = state.quality;
+}
+
+function changed() {
+  savePrefs();
+  renderStyleCards();
   drawPreview();
 }
 
@@ -53,7 +139,8 @@ function drawPreview() {
   if (!overlay.width) return;
   const ctx = overlay.getContext('2d')!;
   ctx.clearRect(0, 0, overlay.width, overlay.height);
-  drawCaptions(ctx, video.currentTime, overlay.width, overlay.height, state.lines, state.settings);
+  const s = frameSettings(video, video.videoWidth, video.videoHeight, state.settings);
+  drawCaptions(ctx, video.currentTime - state.offset, overlay.width, overlay.height, state.lines, s);
 }
 
 let lastPreviewTime = -1;
@@ -71,10 +158,16 @@ function previewLoop() {
 
 function highlightWord(t: number) {
   const spans = ui.words.children;
+  const tt = t - state.offset;
   for (let i = 0; i < spans.length; i++) {
     const w = state.words[i];
-    spans[i].classList.toggle('active', !!w && t >= w.start && t < w.end);
+    spans[i].classList.toggle('active', !!w && tt >= w.start && tt < w.end);
   }
+}
+
+function seekTo(t: number) {
+  ui.video.currentTime = clamp(t, 0, ui.video.duration || 0);
+  drawPreview();
 }
 
 // ---------- style cards ----------
@@ -95,7 +188,7 @@ function renderStyleCards() {
     const label = document.createElement('span');
     label.textContent = id;
     card.append(c, label);
-    card.onclick = () => { state.settings.style = id; renderStyleCards(); drawPreview(); };
+    card.onclick = () => { state.settings.style = id; changed(); };
     ui.styles.append(card);
   }
 }
@@ -113,18 +206,56 @@ function renderWords() {
     span.contentEditable = 'true';
     span.spellcheck = false;
     span.textContent = w.text;
-    span.onclick = () => { ui.video.currentTime = w.start; drawPreview(); };
+    span.onclick = () => seekTo(w.start + state.offset);
     span.oninput = () => { state.words[i].text = span.textContent?.trim() ?? ''; regroup(); };
-    span.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); span.blur(); } };
+    span.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); span.blur(); }
+    };
+    span.onblur = () => {
+      if (!span.textContent?.trim()) { // cleared → delete the word
+        state.words.splice(i, 1);
+        renderWords();
+        regroup();
+      }
+    };
     ui.words.append(span);
   });
 }
 
 // ---------- load + transcribe ----------
+async function runTranscription() {
+  if (!state.file) return;
+  setBusy(true);
+  setStatus(0, 'Preparing…');
+  try {
+    const t = await transcribe(state.file, {
+      language: state.language || undefined,
+      model: state.quality === 'accurate' && !isMobileDevice() ? ACCURATE_MODEL : undefined,
+      onProgress: (f, stage) => setStatus(f, stage),
+    });
+    state.words = t.words;
+    state.transcribed = true;
+    ui.lang.textContent = t.language ? `· ${t.language}` : '';
+    renderWords();
+    regroup();
+    setStatus(null, '');
+    if (transcriptionBackend() === 'wasm') showMessage('Transcribed on CPU (no WebGPU in this browser).');
+  } catch (err) {
+    console.error(err);
+    showMessage('Transcription failed: ' + (err as Error).message);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function loadFile(file: File) {
   state.file = file;
+  state.words = [];
+  state.lines = [];
+  state.transcribed = false;
   ui.intro.hidden = true;
   ui.editor.hidden = false;
+  ui.download.hidden = true;
   ui.video.src = URL.createObjectURL(file);
   await new Promise<void>((res) => ui.video.addEventListener('loadedmetadata', () => res(), { once: true }));
   const scale = Math.min(1, 720 / ui.video.videoWidth);
@@ -133,36 +264,13 @@ async function loadFile(file: File) {
   ui.duration.textContent = fmt(ui.video.duration);
   renderStyleCards();
   requestAnimationFrame(previewLoop);
-
-  state.busy = true;
-  ui.export.disabled = true;
-  setStatus(0, 'Preparing…');
-  try {
-    const t = await transcribe(file, {
-      onProgress: (f, stage) => setStatus(f, stage),
-    });
-    state.words = t.words;
-    ui.lang.textContent = t.language ? `· ${t.language}` : '';
-    renderWords();
-    regroup();
-    setStatus(null, '');
-    const backend = transcriptionBackend();
-    ui.statusText.textContent = backend === 'wasm' ? 'Transcribed on CPU (no WebGPU in this browser).' : '';
-  } catch (err) {
-    console.error(err);
-    setStatus(null, 'Transcription failed: ' + (err as Error).message);
-    ui.status.classList.add('active');
-  } finally {
-    state.busy = false;
-    ui.export.disabled = false;
-  }
+  await runTranscription();
 }
 
 // ---------- export ----------
 async function doExport() {
   if (!state.file || state.busy) return;
-  state.busy = true;
-  ui.export.disabled = true;
+  setBusy(true);
   ui.video.pause();
   try {
     await ensureFontsLoaded([state.settings.fontFamily]);
@@ -170,32 +278,33 @@ async function doExport() {
     const blob = await exportMp4({
       file: state.file,
       fps: 30,
+      maxHeight: state.maxHeight,
       onProgress: (f, stage) => {
         // Estimate remaining time once enough frames are in to make it meaningful.
         const elapsed = (performance.now() - t0) / 1000;
         const eta = f > 0.1 && f < 0.96 ? ` · ~${Math.max(1, Math.round((elapsed / f) * (1 - f)))} s left` : '';
         setStatus(f, stage + eta);
       },
-      drawOverlay: (ctx, t, w, h) => drawCaptions(ctx, t, w, h, state.lines, state.settings),
+      drawOverlay: (ctx, t, w, h) => drawCaptions(ctx, t - state.offset, w, h, state.lines, frameSettings(ctx.canvas, w, h, state.settings)),
     });
     const url = URL.createObjectURL(blob);
-    const name = (state.file.name.replace(/\.[^.]+$/, '') || 'video') + '-captioned.mp4';
+    const name = baseName() + '-captioned.mp4';
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     ui.download.href = url; ui.download.download = name; ui.download.hidden = false;
-    setStatus(null, `Done in ${((performance.now() - t0) / 1000).toFixed(0)} s · ${(blob.size / 1e6).toFixed(1)} MB`);
-    ui.status.classList.add('active');
+    showMessage(`Done in ${((performance.now() - t0) / 1000).toFixed(0)} s · ${(blob.size / 1e6).toFixed(1)} MB`);
   } catch (err) {
     console.error(err);
-    setStatus(null, 'Export failed: ' + (err as Error).message);
-    ui.status.classList.add('active');
+    showMessage('Export failed: ' + (err as Error).message);
   } finally {
-    state.busy = false;
-    ui.export.disabled = false;
+    setBusy(false);
   }
 }
 
 // ---------- wiring ----------
+loadPrefs();
+syncControls();
+
 if (!webCodecsAvailable()) {
   ui.supportWarning.hidden = false;
   ui.supportWarning.textContent = 'This browser lacks WebCodecs, which the MP4 export needs. Please use Chrome or Edge on a desktop.';
@@ -203,6 +312,7 @@ if (!webCodecsAvailable()) {
   ui.supportWarning.hidden = false;
   ui.supportWarning.textContent = 'On a phone, Subtitlr runs a smaller Whisper model on the CPU, so expect a slower, rougher transcript. For the full experience open this page in Chrome or Edge on a laptop or desktop.';
 }
+if (isMobileDevice()) ui.qualityLabel.hidden = true;
 
 ui.file.onchange = () => { const f = ui.file.files?.[0]; if (f) loadFile(f); };
 $('#demo').onclick = async () => {
@@ -213,26 +323,82 @@ for (const ev of ['dragenter', 'dragover'] as const) ui.drop.addEventListener(ev
 for (const ev of ['dragleave', 'drop'] as const) ui.drop.addEventListener(ev, (e) => { e.preventDefault(); ui.drop.classList.remove('over'); });
 ui.drop.addEventListener('drop', (e) => { const f = e.dataTransfer?.files?.[0]; if (f) loadFile(f); });
 
-ui.playpause.onclick = () => { ui.video.paused ? ui.video.play() : ui.video.pause(); };
-ui.video.onclick = ui.playpause.onclick;
+const togglePlay = () => { ui.video.paused ? ui.video.play() : ui.video.pause(); };
+ui.playpause.onclick = togglePlay;
 ui.video.onplay = () => { ui.playpause.textContent = '❚❚'; ui.playpause.className = 'play playing'; };
 ui.video.onpause = () => { ui.playpause.textContent = '▶'; ui.playpause.className = 'play paused'; };
-ui.scrub.oninput = () => {
-  ui.video.currentTime = (Number(ui.scrub.value) / 1000) * ui.video.duration;
-  ui.time.textContent = fmt(ui.video.currentTime);
-  drawPreview();
-};
+ui.scrub.oninput = () => seekTo((Number(ui.scrub.value) / 1000) * ui.video.duration);
 
-ui.font.onchange = async () => { state.settings.fontFamily = ui.font.value; await ensureFontsLoaded([ui.font.value]); renderStyleCards(); drawPreview(); };
-ui.wpl.oninput = () => { state.settings.maxWordsPerLine = Number(ui.wpl.value); regroup(); };
-ui.size.oninput = () => { state.settings.fontSize = Number(ui.size.value); drawPreview(); };
-ui.pos.oninput = () => { state.settings.position = Number(ui.pos.value); drawPreview(); };
-ui.cText.oninput = () => { state.settings.textColor = ui.cText.value; renderStyleCards(); drawPreview(); };
-ui.cHi.oninput = () => { state.settings.highlightColor = ui.cHi.value; renderStyleCards(); drawPreview(); };
-ui.upper.onchange = () => { state.settings.uppercase = ui.upper.checked; renderStyleCards(); drawPreview(); };
+// Drag vertically on the preview to move the captions; a plain click toggles playback.
+{
+  let startY = 0, startPos = 0, dragging = false, pointerId = -1;
+  ui.phone.addEventListener('pointerdown', (e) => {
+    if ((e.target as HTMLElement).closest('.play')) return;
+    pointerId = e.pointerId; startY = e.clientY; startPos = state.settings.position; dragging = false;
+    ui.phone.setPointerCapture(e.pointerId);
+  });
+  ui.phone.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pointerId) return;
+    const rect = ui.phone.getBoundingClientRect();
+    const dy = e.clientY - startY;
+    if (!dragging && Math.abs(dy) < 4) return;
+    dragging = true;
+    ui.phone.classList.add('dragging');
+    state.settings.position = clamp(startPos + dy / rect.height, 0.1, 0.92);
+    ui.pos.value = String(state.settings.position);
+    drawPreview();
+  });
+  const end = (e: PointerEvent) => {
+    if (e.pointerId !== pointerId) return;
+    pointerId = -1;
+    ui.phone.classList.remove('dragging');
+    if (dragging) savePrefs(); else togglePlay();
+  };
+  ui.phone.addEventListener('pointerup', end);
+  ui.phone.addEventListener('pointercancel', end);
+}
+
+// Keyboard: space = play/pause, arrows = seek (shift = 5 s). Ignored while typing in a field.
+document.addEventListener('keydown', (e) => {
+  if (ui.editor.hidden || state.busy) return;
+  const el = e.target as HTMLElement;
+  if (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) return;
+  const step = e.shiftKey ? 5 : 1;
+  if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo(ui.video.currentTime - step); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo(ui.video.currentTime + step); }
+});
+
+ui.font.onchange = async () => { state.settings.fontFamily = ui.font.value; await ensureFontsLoaded([ui.font.value]); changed(); };
+ui.wpl.oninput = () => { state.settings.maxWordsPerLine = Number(ui.wpl.value); savePrefs(); regroup(); };
+ui.size.oninput = () => { state.settings.fontSize = Number(ui.size.value); savePrefs(); drawPreview(); };
+ui.pos.oninput = () => { state.settings.position = Number(ui.pos.value); savePrefs(); drawPreview(); };
+ui.cText.oninput = () => { state.settings.textColor = ui.cText.value; changed(); };
+ui.cHi.oninput = () => { state.settings.highlightColor = ui.cHi.value; changed(); };
+ui.cStroke.oninput = () => { state.settings.strokeColor = ui.cStroke.value; changed(); };
+ui.upper.onchange = () => { state.settings.uppercase = ui.upper.checked; changed(); };
+ui.autoColor.onchange = () => { state.settings.autoColor = ui.autoColor.checked; ui.cText.disabled = ui.autoColor.checked; savePrefs(); drawPreview(); };
+ui.offset.oninput = () => {
+  state.offset = Number(ui.offset.value);
+  ui.offsetVal.textContent = `${state.offset >= 0 ? '+' : ''}${state.offset.toFixed(2)} s`;
+  savePrefs(); drawPreview(); highlightWord(ui.video.currentTime);
+};
+ui.resolution.onchange = () => { state.maxHeight = Number(ui.resolution.value); savePrefs(); };
+ui.language.onchange = () => { state.language = ui.language.value; savePrefs(); };
+ui.quality.onchange = () => { state.quality = ui.quality.value as Prefs['quality']; savePrefs(); };
+ui.retranscribe.onclick = () => { if (!state.busy) runTranscription(); };
+
+ui.copy.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(toText(state.words));
+    showMessage('Transcript copied.');
+  } catch { showMessage('Clipboard blocked by the browser.'); }
+};
+ui.srt.onclick = () => downloadText(baseName() + '.srt', toSrt(state.lines, state.offset), 'application/x-subrip');
+ui.vtt.onclick = () => downloadText(baseName() + '.vtt', toVtt(state.lines, state.offset), 'text/vtt');
 
 ui.export.onclick = doExport;
 ui.reset.onclick = () => location.reload();
 
 // expose for headless tests
-(window as any).subtitlr = { state, loadFile, doExport };
+(window as any).subtitlr = { state, loadFile, doExport, toSrt, toVtt };

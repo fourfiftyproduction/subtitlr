@@ -52,6 +52,14 @@ await page.evaluate(() => { const v = document.querySelector('#video'); v.curren
 await new Promise((r) => setTimeout(r, 400));
 await page.screenshot({ path: 'tmp/e2e-2-editor.png' });
 
+// optional feature toggles for the export frame (AUTO_COLOR=1, STYLE=karaoke, …)
+await page.evaluate(([auto, style]) => {
+  const s = window.subtitlr.state.settings;
+  if (auto) s.autoColor = true;
+  if (style) s.style = style;
+}, [!!process.env.AUTO_COLOR, process.env.STYLE ?? '']);
+console.log(stamp(), 'srt cues:', (await page.evaluate(() => window.subtitlr.toSrt(window.subtitlr.state.lines))).split('\n\n').filter(Boolean).length);
+
 // export
 await page.click('#export');
 last = '';

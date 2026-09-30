@@ -35,6 +35,8 @@ export interface CaptionSettings {
   backgroundColor: string;
   maxWordsPerLine: number;
   uppercase: boolean;
+  /** Text colour becomes the negative of the video behind the captions, per frame. */
+  autoColor: boolean;
 }
 
 export const DEFAULT_SETTINGS: CaptionSettings = {
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: CaptionSettings = {
   backgroundColor: 'rgba(0,0,0,0.65)',
   maxWordsPerLine: 4,
   uppercase: true,
+  autoColor: false,
 };
 
 /** Draws the caption(s) active at `timeSec` onto a canvas of size w×h. Pure: no state between calls. */

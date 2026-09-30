@@ -357,6 +357,54 @@ const outline: CaptionRenderer = withLine(900, 0.34, (ctx, L, active, t, s, w, h
 
 export const renderers: Record<StyleId, CaptionRenderer> = { pop, karaoke, boxed, clean, outline };
 
+// ---------------------------------------------------------------- auto colour
+
+let probe: OffscreenCanvas | null = null;
+const PROBE_W = 24, PROBE_H = 6;
+
+/** Average colour of the band the captions sit on, sampled from `src` (a video or a canvas already holding the frame). */
+export function bandColor(src: CanvasImageSource, srcW: number, srcH: number, settings: CaptionSettings): [number, number, number] | null {
+  try {
+    probe ??= new OffscreenCanvas(PROBE_W, PROBE_H);
+    const c = probe.getContext('2d', { willReadFrequently: true })!;
+    const bandH = Math.max(1, settings.fontSize * srcH * 3);
+    const y = Math.max(0, Math.min(srcH - bandH, settings.position * srcH - bandH / 2));
+    c.drawImage(src, 0, y, srcW, bandH, 0, 0, PROBE_W, PROBE_H);
+    const d = c.getImageData(0, 0, PROBE_W, PROBE_H).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    const n = d.length / 4;
+    return [r / n, g / n, b / n];
+  } catch {
+    return null; // tainted canvas, no frame yet, …
+  }
+}
+
+const luma = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+const hex = ([r, g, b]: [number, number, number]) => '#' + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+
+/** Negative of the band colour, pushed towards white/black when the negative would sit too close to the band's brightness. */
+export function negativeTextColor(band: [number, number, number]): string {
+  const neg: [number, number, number] = [255 - band[0], 255 - band[1], 255 - band[2]];
+  const lb = luma(band), ln = luma(neg);
+  if (Math.abs(lb - ln) >= 70) return hex(neg);
+  // Mid-tone scene: keep the hue but take it to a clearly lighter or darker tint.
+  const target = lb > 128 ? 30 : 235;
+  const k = ln === 0 ? 1 : target / ln;
+  return hex([neg[0] * k, neg[1] * k, neg[2] * k]);
+}
+
+/** Settings for this frame: with autoColor, the text colour is the negative of the video behind the captions. */
+export function frameSettings(src: CanvasImageSource, srcW: number, srcH: number, settings: CaptionSettings): CaptionSettings {
+  if (!settings.autoColor) return settings;
+  const band = bandColor(src, srcW, srcH, settings);
+  if (!band) return settings;
+  const textColor = negativeTextColor(band);
+  // Outline flips too so it keeps contrasting with the text.
+  const strokeColor = luma(band) > 128 ? '#ffffff' : '#000000';
+  return { ...settings, textColor, strokeColor };
+}
+
 /** Dispatches to `renderers[settings.style]`. */
 export function drawCaptions(
   ctx: CanvasRenderingContext2D, timeSec: number, w: number, h: number, lines: CaptionLine[], settings: CaptionSettings,

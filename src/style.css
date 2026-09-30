@@ -76,6 +76,18 @@ button, select, input { font: inherit; color: inherit; }
 .grid2 select, .grid2 input[type=range] { width: 100%; accent-color: var(--accent); }
 .grid2 select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--text); }
 .grid2 input[type=color] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+.grid2 .colors { display: flex; gap: 16px; flex-wrap: wrap; }
+.grid2 .colors label { flex-direction: row; align-items: center; gap: 8px; }
+.grid2 label .mono { font-size: 12px; }
+.hint { grid-column: 1 / -1; margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.row-controls { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.row-controls label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
+.row-controls select, .actions select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--text); }
+.ghost.small { padding: 7px 12px; font-size: 13px; }
+.ghost:disabled { opacity: .45; cursor: not-allowed; }
+.actions label.inline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.phone.dragging { cursor: ns-resize; }
+.phone { cursor: pointer; }
 
 /* style cards */
 .styles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }

@@ -85,21 +85,58 @@
             <label>Position
               <input id="pos" type="range" min="0.1" max="0.92" step="0.01" value="0.72" />
             </label>
-            <label>Text <input id="c-text" type="color" value="#ffffff" /></label>
-            <label>Highlight <input id="c-hi" type="color" value="#ffe600" /></label>
+            <div class="colors">
+              <label>Text <input id="c-text" type="color" value="#ffffff" /></label>
+              <label>Highlight <input id="c-hi" type="color" value="#ffe600" /></label>
+              <label>Outline <input id="c-stroke" type="color" value="#000000" /></label>
+              <label class="check" title="Text colour becomes the negative of the video behind the captions, frame by frame"><input id="auto-color" type="checkbox" /> Auto: negative of video</label>
+            </div>
             <label class="check"><input id="upper" type="checkbox" checked /> UPPERCASE</label>
+            <label>Timing shift <span id="offset-val" class="mono">0.00 s</span>
+              <input id="offset" type="range" min="-0.5" max="0.5" step="0.02" value="0" />
+            </label>
+            <p class="hint">Tip: drag the captions in the preview to move them. Space plays, ← → seek.</p>
           </div>
 
           <div class="group">
             <div class="group-title row">
               <span>Transcript <small id="lang" class="muted"></small></span>
-              <small class="muted">click a word to jump · edit text inline</small>
+              <small class="muted">click a word to jump · edit inline · clear a word to delete it</small>
             </div>
             <div id="words" class="words"></div>
+            <div class="row-controls">
+              <label>Language
+                <select id="language">
+                  <option value="">Auto-detect</option>
+                  <option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option>
+                  <option value="fr">Français</option><option value="it">Italiano</option><option value="pt">Português</option>
+                  <option value="nl">Nederlands</option><option value="pl">Polski</option><option value="tr">Türkçe</option>
+                  <option value="ru">Русский</option><option value="uk">Українська</option><option value="ja">日本語</option>
+                  <option value="ko">한국어</option><option value="zh">中文</option><option value="ar">العربية</option><option value="hi">हिन्दी</option>
+                </select>
+              </label>
+              <label id="quality-label">Model
+                <select id="quality">
+                  <option value="fast">Fast (base)</option>
+                  <option value="accurate">Accurate (small, bigger download)</option>
+                </select>
+              </label>
+              <button id="retranscribe" class="ghost small" disabled>Re-transcribe</button>
+              <button id="copy" class="ghost small" disabled>Copy text</button>
+            </div>
           </div>
 
           <div class="group actions">
             <button id="export" class="primary" disabled>Export MP4</button>
+            <label class="inline">at
+              <select id="resolution">
+                <option value="1920">1080p</option>
+                <option value="1280">720p</option>
+                <option value="100000">original</option>
+              </select>
+            </label>
+            <button id="srt" class="ghost" disabled>SRT</button>
+            <button id="vtt" class="ghost" disabled>VTT</button>
             <a id="download" class="ghost" hidden download="subtitlr.mp4">Download again</a>
             <button id="reset" class="ghost">Start over</button>
           </div>

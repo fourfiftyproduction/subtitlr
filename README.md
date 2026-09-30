@@ -11,10 +11,12 @@ for caption subscriptions like Submagic or Captions ($16–39/month).
 ## What it does
 
 1. Drop a vertical video (MP4/MOV/WebM, up to a few minutes).
-2. Whisper runs on your GPU via WebGPU (CPU fallback) and returns word-level timestamps.
-3. Pick one of five caption styles (pop, karaoke, boxed, clean, outline), font, size, position, colors.
-4. Fix any word inline; click a word to jump there.
-5. Export a real MP4 (H.264 + AAC) with the captions burned in.
+2. Whisper runs on your GPU via WebGPU (CPU fallback) and returns word-level timestamps. Auto-detects the language, or pick one; choose the fast (base) or accurate (small) model and re-transcribe.
+3. Pick one of five caption styles (pop, karaoke, boxed, clean, outline), font, size, colors, words per line. Drag the captions in the preview to place them. "Auto: negative of video" recolors the text frame by frame to the inverse of what is behind it.
+4. Fix any word inline, clear a word to delete it, click a word to jump there. Nudge all timing with the shift slider. Space / arrow keys drive playback.
+5. Export a real MP4 (H.264 + AAC, 1080p / 720p / original) with the captions burned in, or download SRT / VTT, or copy the plain text.
+
+Your settings are remembered in the browser between sessions.
 
 ## How it works
 
