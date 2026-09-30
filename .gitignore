@@ -25,3 +25,4 @@ dist-ssr
 
 # local test output
 tmp
+scripts/submit-entry.mjs
