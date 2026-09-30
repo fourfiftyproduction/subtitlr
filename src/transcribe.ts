@@ -5,7 +5,19 @@ import type { Transcript, TranscribeOptions, Word } from './types';
 
 // Word timestamps need an export with cross-attention outputs; plain whisper-base lacks them.
 export const DEFAULT_MODEL = 'onnx-community/whisper-base_timestamped';
+// Phones: a quarter of the weights, and we stay on wasm — WebGPU on mobile GPUs still takes whole tabs down.
+export const MOBILE_MODEL = 'onnx-community/whisper-tiny_timestamped';
 const SAMPLE_RATE = 16000;
+
+export function isMobileDevice(): boolean {
+  const uaMobile = (navigator as any).userAgentData?.mobile;
+  if (typeof uaMobile === 'boolean') return uaMobile;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+}
+
+export function defaultModel(): string {
+  return isMobileDevice() ? MOBILE_MODEL : DEFAULT_MODEL;
+}
 
 type Backend = 'webgpu' | 'wasm' | 'unknown';
 type Device = Exclude<Backend, 'unknown'>;
@@ -26,6 +38,7 @@ export function transcriptionBackend(): Backend {
 }
 
 async function webgpuUsable(): Promise<boolean> {
+  if (isMobileDevice()) return false;
   try {
     const adapter = await (navigator as any).gpu?.requestAdapter();
     return !!adapter && !adapter.isFallbackAdapter && !adapter.info?.isFallbackAdapter;
@@ -70,7 +83,7 @@ async function getPipeline(model: string, onProgress?: Progress): Promise<Automa
 
 /** Optional warm-up so the model download happens before the user hits "transcribe". */
 export async function preloadModel(opts: TranscribeOptions = {}): Promise<void> {
-  await getPipeline(opts.model ?? DEFAULT_MODEL, opts.onProgress);
+  await getPipeline(opts.model ?? defaultModel(), opts.onProgress);
 }
 
 /** Video/audio Blob → 16 kHz mono samples. decodeAudioData resamples to the context rate. */
@@ -130,7 +143,7 @@ export async function transcribe(file: Blob, opts: TranscribeOptions = {}): Prom
   const report: Progress = (f, s) => opts.onProgress?.(Math.min(1, Math.max(0, f)), s);
 
   report(0, 'Loading model');
-  const asr = await getPipeline(opts.model ?? DEFAULT_MODEL, (f, s) => report(f * 0.5, s));
+  const asr = await getPipeline(opts.model ?? defaultModel(), (f, s) => report(f * 0.5, s));
 
   report(0.5, 'Decoding audio');
   const audio = await decodeAudio(file);

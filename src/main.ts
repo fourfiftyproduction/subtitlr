@@ -1,6 +1,6 @@
 import './style.css';
 import { exportMp4, webCodecsAvailable } from './export';
-import { transcribe, transcriptionBackend } from './transcribe';
+import { isMobileDevice, transcribe, transcriptionBackend } from './transcribe';
 import { drawCaptions, ensureFontsLoaded, groupWords, renderers } from './captions';
 import { DEFAULT_SETTINGS, type CaptionLine, type CaptionSettings, type StyleId, type Word } from './types';
 
@@ -199,6 +199,9 @@ async function doExport() {
 if (!webCodecsAvailable()) {
   ui.supportWarning.hidden = false;
   ui.supportWarning.textContent = 'This browser lacks WebCodecs, which the MP4 export needs. Please use Chrome or Edge on a desktop.';
+} else if (isMobileDevice()) {
+  ui.supportWarning.hidden = false;
+  ui.supportWarning.textContent = 'On a phone, Subtitlr runs a smaller Whisper model on the CPU, so expect a slower, rougher transcript. For the full experience open this page in Chrome or Edge on a laptop or desktop.';
 }
 
 ui.file.onchange = () => { const f = ui.file.files?.[0]; if (f) loadFile(f); };

@@ -44,7 +44,8 @@ const watchdog = setInterval(async () => {
 }, 5000);
 process.on('exit', () => clearInterval(watchdog));
 
-const run = () => page.evaluate((url) => window.runTranscribe(url), CLIP);
+const MODEL = process.env.MODEL; // e.g. onnx-community/whisper-tiny_timestamped (the phone default)
+const run = () => page.evaluate(([url, model]) => window.runTranscribe(url, model ? { model } : {}), [CLIP, MODEL]);
 let json;
 try { json = await Promise.race([run(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS))]); }
 catch (e) {
